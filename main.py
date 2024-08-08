@@ -13,8 +13,8 @@ import random
 
 class CKA():
     __name__ = 'CKA'
-    def __init__(self):
-        pass
+    def __init__(self, method='original'):
+        self._method = method
 
     def _debiased_dot_product_similarity_helper(self, xty, sum_squared_rows_x, sum_squared_rows_y, squared_norm_x, squared_norm_y, n):
         return ( xty - n / (n - 2.) * sum_squared_rows_x.dot(sum_squared_rows_y) + squared_norm_x * squared_norm_y / ((n - 1) * (n - 2)))
@@ -50,26 +50,59 @@ class CKA():
     def scores(self,  model, X_train=None, y_train=None, allowed_layers=[]):
         output = []
 
-        F = Model(model.input, model.get_layer(index=-2).output)
-        features_F = F.predict(X_train, verbose=0)
+        if (self._method =='original'):
+            F = Model(model.input, model.get_layer(index=-2).output)
+            features_F = F.predict(X_train, verbose=0)
 
-        F_line = Model(model.input, model.get_layer(index=-2).output)
-        for layer_idx in allowed_layers:
-            _layer = F_line.get_layer(index=layer_idx - 1)
-            _w = _layer.get_weights()
-            _w_original = copy.deepcopy(_w)
+            F_line = Model(model.input, model.get_layer(index=-2).output)
+            for layer_idx in allowed_layers:
+                _layer = F_line.get_layer(index=layer_idx - 1)
+                _w = _layer.get_weights()
+                _w_original = copy.deepcopy(_w)
 
-            for i in range(0, len(_w)):
-                _w[i] = np.zeros(_w[i].shape)
+                for i in range(0, len(_w)):
+                    _w[i] = np.zeros(_w[i].shape)
 
-            _layer.set_weights(_w)
-            features_line = F_line.predict(X_train, verbose=0)
+                _layer.set_weights(_w)
+                features_line = F_line.predict(X_train, verbose=0)
 
-            _layer.set_weights(_w_original)
+                _layer.set_weights(_w_original)
 
-            score = self.feature_space_linear_cka(features_F, features_line)
-            output.append((layer_idx, 1 - score))
+                score = self.feature_space_linear_cka(features_F, features_line)
+                output.append((layer_idx, 1 - score))
 
+        elif (self._method == 'intra'):
+            idx_allowed_layers_block_start = rl.get_ResNet_block_start_layers(model)
+            idx_allowed_layers_block_end = allowed_layers
+
+            n_candidate_blokcs = len(idx_allowed_layers_block_start)
+            features_block_start = [[]] * n_candidate_blokcs
+            features_block_end = [[]] * n_candidate_blokcs
+            for i, (idx_block_start, idx_block_end) in enumerate(zip(idx_allowed_layers_block_start, idx_allowed_layers_block_end)):
+                layer_block_start = model.get_layer(index=idx_block_start)
+                features_block_start[i] = layer_block_start.output
+
+                layer_block_end = model.get_layer(index=idx_block_end)
+                features_block_end[i] = layer_block_end.output
+            
+            F_exposed_features = Model(model.input, features_block_start + features_block_end)
+
+            inner_features = F_exposed_features(X_train)
+            
+            for i in range(n_candidate_blokcs):
+                features_pre_block = inner_features[i].numpy()
+                new_shape = [features_pre_block.shape[0], np.prod(features_pre_block.shape[1:])]
+                features_pre_block = np.reshape(features_pre_block, new_shape)
+
+                features_post_block = inner_features[i + len(features_block_start)].numpy()
+                new_shape = [features_post_block.shape[0], np.prod(features_post_block.shape[1:])]
+                features_post_block = np.reshape(features_post_block, new_shape)
+
+                score = self.feature_space_linear_cka(features_pre_block, features_post_block)
+                output.append((idx_allowed_layers_block_end[i], score))                
+        else:
+            raise ValueError(f'Invalid method: {self._method}'
+)
         return output
 
 def load_model(architecture_file='', weights_file=''):
@@ -164,6 +197,7 @@ if __name__ == '__main__':
     np.random.seed(2)
 
     rl.architecture_name = 'ResNet56'
+    method = 'intra' # 'intra' or 'original'
     debug = True
 
     (X_train, y_train), (X_test, y_test) = keras.datasets.cifar10.load_data()
@@ -197,7 +231,7 @@ if __name__ == '__main__':
     for i in range(10):
 
         allowed_layers = rl.blocks_to_prune(model)
-        layer_method = CKA()
+        layer_method = CKA(method=method)
         scores = layer_method.scores(model, X_train, y_train, allowed_layers)
         model = finetuning(model, X_train, y_train)
         model = rl.rebuild_network(model, scores, p_layer=1)

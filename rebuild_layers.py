@@ -98,6 +98,26 @@ def add_to_pruneResNet(model):
     allowed_layers.append(all_add[-1])
     return allowed_layers
 
+def get_ResNet_block_start_layers(model):
+    allowed_layers = []
+    all_add = []
+
+    for i in range(0, len(model.layers)):
+        if isinstance(model.get_layer(index=i), Add):
+            all_add.append(i)
+
+    for i in range(1, len(all_add) - 1):
+        input_shape = model.get_layer(index=all_add[i]).output_shape
+        output_shape = model.get_layer(index=all_add[i - 1]).output_shape
+        # These are the valid blocks we can remove
+        if input_shape == output_shape:
+            allowed_layers.append(all_add[i-1])
+
+    # The last block is enabled
+    allowed_layers.append(all_add[i])
+    return allowed_layers
+
+
 def add_to_pruneMobileV2(model):
     allowed_layers = []
     all_add = []
