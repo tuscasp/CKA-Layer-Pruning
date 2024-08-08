@@ -1,5 +1,17 @@
 # Effective-Layer-Pruning
 
+## Env Setup
+
+``` bash
+conda create --name tf215
+conda activate tf215
+conda install python==3.9
+pip install tensorflow==2.15.1
+pip install scikit-learn
+```
+
+## Experiments instruction
+
 This repository provides code examples of our CKA criterion for layer pruning, including some of our pruned models. <br />
 
 To observe and understand the functionality of our method, we simplify many training/fine-tuning parameters. If you are interested in reproducing our results, please follow the steps below: <br />
