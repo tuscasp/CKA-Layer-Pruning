@@ -10,6 +10,7 @@ import argparse
 import rebuild_layers as rl
 import template_architectures
 import random
+from pathlib import Path
 
 class CKA():
     __name__ = 'CKA'
@@ -87,19 +88,19 @@ class CKA():
             
             F_exposed_features = Model(model.input, features_block_start + features_block_end)
 
-            inner_features = F_exposed_features(X_train)
+            inner_features = F_exposed_features.predict(X_train)
             
             for i in range(n_candidate_blokcs):
-                features_pre_block = inner_features[i].numpy()
+                features_pre_block = inner_features[i]
                 new_shape = [features_pre_block.shape[0], np.prod(features_pre_block.shape[1:])]
                 features_pre_block = np.reshape(features_pre_block, new_shape)
 
-                features_post_block = inner_features[i + len(features_block_start)].numpy()
+                features_post_block = inner_features[i + len(features_block_start)]
                 new_shape = [features_post_block.shape[0], np.prod(features_post_block.shape[1:])]
                 features_post_block = np.reshape(features_post_block, new_shape)
 
                 score = self.feature_space_linear_cka(features_pre_block, features_post_block)
-                output.append((idx_allowed_layers_block_end[i], score))                
+                output.append((idx_allowed_layers_block_end[i], 1 - score))
         else:
             raise ValueError(f'Invalid method: {self._method}'
 )
@@ -184,14 +185,21 @@ def statistics(model, i):
 
     print('Iteration [{}] Blocks {} FLOPS [{}]'.format(i, blocks, flops), flush=True)
 
-
 def finetuning(model, X_train, y_train):
     sgd = keras.optimizers.SGD(learning_rate=0.01, weight_decay=1e-6, momentum=0.9, nesterov=True)
     model.compile(loss='categorical_crossentropy', optimizer=sgd, metrics=['accuracy'])
 
-    model.fit(X_train, y_train, batch_size=128, verbose=0, epochs=10)
+    model.fit(X_train, y_train, batch_size=128, verbose=1, epochs=10)
 
     return model
+
+def get_name_removed_layer(model: tf.keras.models.Model , scores):
+    values_scores = [l[1] for l in scores]
+    idx_layers_scores = [l[0] for l in scores]
+
+    idx_removed_layer = idx_layers_scores[np.argmin(values_scores)]
+    name = model.get_layer(index=idx_removed_layer).name
+    return name
 
 if __name__ == '__main__':
     np.random.seed(2)
@@ -199,6 +207,9 @@ if __name__ == '__main__':
     rl.architecture_name = 'ResNet56'
     method = 'intra' # 'intra' or 'original'
     debug = True
+
+    save_dir = Path('./pruning_history/')
+    save_dir.mkdir(exist_ok=True)
 
     (X_train, y_train), (X_test, y_test) = keras.datasets.cifar10.load_data()
 
@@ -228,11 +239,22 @@ if __name__ == '__main__':
 
     statistics(model, 'Unpruned')
 
+    file_name_model = model.name + '_00_unpruned.keras'
+    path_model = save_dir / file_name_model
+    model.save(path_model)
+
     for i in range(10):
 
         allowed_layers = rl.blocks_to_prune(model)
         layer_method = CKA(method=method)
         scores = layer_method.scores(model, X_train, y_train, allowed_layers)
-        model = finetuning(model, X_train, y_train)
+
+        name_layer_removed = get_name_removed_layer(model, scores)
+        file_name_model = model.name + f'_{i+1:02d}_{name_layer_removed}.keras'
+        path_model = save_dir / file_name_model
+        model.save(path_model)
+
         model = rl.rebuild_network(model, scores, p_layer=1)
+        model = finetuning(model, X_train, y_train)
+
         statistics(model, i)
