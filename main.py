@@ -210,9 +210,9 @@ def finetuning(model, X_train, y_train, X_test=None, y_test=None, path_to_save :
         validation_data = (X_test, y_test)
         callbacks = [
             tf.keras.callbacks.ModelCheckpoint(str(path_to_save), monitor='val_accuracy', save_best_only=True, verbose=1),
-            tf.keras.callbacks.EarlyStopping( monitor='val_accuracy', min_delta=0, patience=20, verbose=0),
+            tf.keras.callbacks.EarlyStopping( monitor='val_accuracy', min_delta=0, patience=40, verbose=0),
             tf.keras.callbacks.CSVLogger(str(path_to_save.with_suffix('.log'))),
-            tf.keras.callbacks.ReduceLROnPlateau(monitor='val_accuracy', factor=0.1, patience=12, min_lr=0.00001)
+            tf.keras.callbacks.ReduceLROnPlateau(monitor='val_accuracy', factor=0.1, patience=30, min_lr=0.00001, min_delta=0.005)
         ]
 
     augmented_model.fit(
@@ -244,7 +244,7 @@ if __name__ == '__main__':
     method = 'intra' # 'intra' or 'original'
     debug = False
     count_layers_to_prune = 22
-    n_epochs = 200
+    n_epochs = 300
 
     save_dir = Path('./pruning_history/')
     save_dir.mkdir(exist_ok=True)
